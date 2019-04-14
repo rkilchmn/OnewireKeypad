@@ -23,6 +23,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+/******************************************************************************************/
+/*    To V_ref --- R_pullup - (To A/D input)- R_col0 	- R_col1 	-  ... R_col(cols-1)      */
+/*                                        	X         X         X        									*/
+/*                 R_row0                 	X         X         X        									*/
+/*                 R_row1                   X         X         X        									*/
+/*                 R_row2                   X         X         X        									*/
+/*             ... R_row(rows-1)                                                          */
+/*                                                                                        */
+/*   Reccomend to generate Keypad resistor values by                           						*/
+/*   1-Wire Keyboard 1.2.0b software from www.rau-deaver.org/Electronics                  */
+/******************************************************************************************/
+
 #ifndef OnewireKeypad_h
 #define OnewireKeypad_h
 #include <Arduino.h>
@@ -35,7 +47,6 @@ SOFTWARE.
 #define HELD 3
 
 //This number is based on 1/3 the lowest AR value from the ShowRange function.
-#define KP_TOLERANCE 20
 
 struct MissingType {};
 
@@ -67,10 +78,11 @@ class OnewireKeypad {
     char	S_Getkey();
     void	SetHoldTime(unsigned long setH_Time) { holdTime = setH_Time; }
     void	SetDebounceTime(unsigned long setD_Time) { debounceTime = setD_Time; }
-	void	SetKeypadVoltage(float Volts);
-	void	SetAnalogPinRange(float range);
+		void	SetKeypadVoltage(float Volts);
+		void	SetAnalogPinRange(float range);
+		void	SetResistors(const long *R_rows, const long *R_cols, signed long R_pullUpDown, long R_adImpedance, long adMax);
     uint8_t	Key_State();
-    bool	readPin() { return analogRead(_Pin) > KP_TOLERANCE; }
+    bool	readPin();
     void	LatchKey();
     bool	checkLatchedKey(char _key);
     void	addEventKey(void (*userFunc)(void), char KEY);
@@ -82,6 +94,7 @@ class OnewireKeypad {
   protected:
     T &port_;
     float ANALOG_FACTOR;
+		int KP_TOLERANCE = 20;
 
   private:
     BitBool< MAX_KEYS > latchedKey;
@@ -97,11 +110,17 @@ class OnewireKeypad {
     long 	R1, R2, R3;
     unsigned long debounceTime, lastDebounceTime;
     unsigned int pinRange;
-	float 	lastReading;
+		float 	lastReading;
     struct {
 		void(*intFunc)();
 		char keyHolder;
     } Event[MAX_KEYS];
+
+		// multi value resistor matrix
+		boolean multiResistor = false;
+		long _adLower[MAX_KEYS];
+		long _adUpper[MAX_KEYS];
+
 };
 
 template < typename T, typename U > struct IsSameType {
@@ -140,6 +159,70 @@ void OnewireKeypad< T, MAX_KEYS >::SetKeypadVoltage(float Volts) {
 }
 
 template < typename T, unsigned MAX_KEYS >
+void OnewireKeypad< T, MAX_KEYS >::SetResistors(const long *R_rows, const long *R_cols, signed long R_pullUpDown, long R_adImpedance, long adMax)
+{ 
+	multiResistor = true;
+
+  if (R_pullUpDown > 0)
+  {
+    float prev_val_ad = 0;
+    float prev_adUpper = 0;
+    float prev_overlapp = 0;
+
+    for (uint8_t i = 0, R = _Rows - 1, C = 0; i < SIZE; i++)
+    {
+      long R_key = 0;
+      // sum up colum resistors
+      for (uint8_t j = 0; j < C; j++)
+      {
+        R_key += R_cols[j];
+      }
+
+      // sum up row resistors
+      for (uint8_t k = R; k < _Rows - 1; k++)
+      {
+        R_key += R_rows[k];
+      }
+
+      // parallel resistor od R key and R ad (impedance of Analog digital pin to GND)
+      float R_par = (R_key * R_adImpedance * 1.0f) / (R_key + R_adImpedance);
+
+      // ad value calculated as voltage drop accros R_par of serial resistors V_ref -> R_pullUpDown -> R_par -> GND
+      float val_ad = (adMax * R_par) / (R_pullUpDown + R_par);
+
+      // first pass:  boundary based on distance to previous ad value<
+      float adLower = max(0.0f, val_ad - ((val_ad - prev_val_ad) / 2));// max used for edge case i=0
+      float adUpper = val_ad + ((val_ad - prev_val_ad) / 2);
+
+      // second pass: adjust for overlapping boundaries
+      float overlapp = adLower - prev_adUpper;
+
+      _adLower[i] = ceil( adLower + abs( prev_overlapp) / 2);
+      _adUpper[i] = ceil( adUpper);
+			KP_TOLERANCE = - (_adUpper[i]+1);
+      if (i > 0) 
+      {
+        if (i == 1)
+          _adUpper[i - 1] = _adLower[i] - 1; // edge case i = 1
+        else 
+          _adUpper[i - 1] = floor( prev_adUpper - abs( overlapp) / 2);
+      }
+
+      prev_val_ad = val_ad;
+      prev_adUpper = adUpper;
+      prev_overlapp = overlapp;
+
+      if (R == 0)
+        {
+          C++;
+          R = _Rows - 1;
+        }
+        else R--;
+    }
+  }
+}
+
+template < typename T, unsigned MAX_KEYS >
 char OnewireKeypad< T, MAX_KEYS >::Getkey() {
 	// Check R3 and set it if needed
 	if ( R3 == 0 ) { R3 = R2; }
@@ -159,11 +242,19 @@ char OnewireKeypad< T, MAX_KEYS >::Getkey() {
 		if (state == false) { return NO_KEY; }
 			
 		for ( uint8_t i = 0, R = _Rows - 1, C = _Cols - 1; i < SIZE; i++ ) {
-			float V = (voltage * float( R3 )) / (float(R3) + (float(R1) * float(R)) + (float(R2) * float(C)));
-			float Vfinal = V * ANALOG_FACTOR;
-			
-			if ( pinReading <= (int(Vfinal) + 1.9f )) {
-				return _Data[(SIZE - 1) - i];
+			if (multiResistor) {
+				uint8_t j = (C*_Rows) + _Rows - 1 - R; // position in _ad 
+				uint8_t k = (R*_Cols) + C; // position in _Data
+				if ( (pinReading <= _adUpper[j]) &&  (pinReading >= _adLower[j])) 
+					return _Data[k];
+			} 
+			else {
+				float V = (voltage * float( R3 )) / (float(R3) + (float(R1) * float(R)) + (float(R2) * float(C)));
+				float Vfinal = V * ANALOG_FACTOR;
+				
+				if ( pinReading <= (int(Vfinal) + 1.9f )) {
+					return _Data[(SIZE - 1) - i];
+				}
 			}
 
 			if ( C == 0 ) {
@@ -190,6 +281,19 @@ uint8_t OnewireKeypad< T, MAX_KEYS >::Key_State() {
 		return RELEASED;
 	}
 	return WAITING;
+}
+
+template < typename T, unsigned MAX_KEYS >
+bool OnewireKeypad<T, MAX_KEYS >::readPin() { 
+	 int read = analogRead(_Pin);
+	 if (KP_TOLERANCE >= 0) {
+		 // return 0 if >= tolerance
+		 return read >= KP_TOLERANCE; 
+	 }
+	 else {
+		// return 0 if <= tolerance
+		 return read <= - KP_TOLERANCE; 
+	 }
 }
 
 
@@ -270,13 +374,19 @@ void OnewireKeypad< T, MAX_KEYS >::ListenforEventKey() {
 template < typename T, unsigned MAX_KEYS >
 void OnewireKeypad< T, MAX_KEYS >::ShowRange() {
 	if (R3 == 0) { R3 = R2; }
-
+	port_ << "\n";
 	for ( uint8_t R = 0; R < _Rows; R++) {
 		for ( uint8_t C = 0; C < _Cols; C++) {
 			float V = (voltage * float( R3 )) / (float(R3) + (float(R1) * float(R)) + (float(R2) * float(C)));
       
 			if ( !IsSameType< T, LCDTYPE >::Value)
-				port_ << "V:" << V << ", AR: " << (V * ANALOG_FACTOR) << " | "; // 204.6 is from 1023/5.0
+				if (multiResistor) {
+					uint8_t i = (C*_Rows) + _Rows - 1 - R; // position in _ad 
+					uint8_t j = (R*_Cols) + C; // position in _Data
+					port_ << "key:" << _Data[j] << " low:" << _adLower[i] << " high:" << _adUpper[i] << " | "; // 204.6 is from 1023/5.0
+				}
+				else
+					port_ << "V:" << V << ", AR: " << (V * ANALOG_FACTOR) << " | "; // 204.6 is from 1023/5.0
 		}
 		if ( !IsSameType< T, LCDTYPE >::Value)
 			port_.println("\n--------------------------------------------------------------------------------");
