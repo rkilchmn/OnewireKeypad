@@ -168,6 +168,7 @@ void OnewireKeypad< T, MAX_KEYS >::SetResistors(const long *R_rows, const long *
     float prev_val_ad = 0;
     float prev_adUpper = 0;
     float prev_overlapp = 0;
+		uint8_t prev_idx = 0;
 
     for (uint8_t i = 0, R = _Rows - 1, C = 0; i < SIZE; i++)
     {
@@ -197,20 +198,23 @@ void OnewireKeypad< T, MAX_KEYS >::SetResistors(const long *R_rows, const long *
       // second pass: adjust for overlapping boundaries
       float overlapp = adLower - prev_adUpper;
 
-      _adLower[i] = ceil( adLower + abs( prev_overlapp) / 2);
-      _adUpper[i] = ceil( adUpper);
-			KP_TOLERANCE = - (_adUpper[i]+1);
+			uint8_t idx = (R*_Cols) + C; // position in _Data
+
+      _adLower[idx] = ceil( adLower + abs( prev_overlapp) / 2);
+      _adUpper[idx] = ceil( adUpper);
+			KP_TOLERANCE = - (_adUpper[idx]+1);
       if (i > 0) 
       {
         if (i == 1)
-          _adUpper[i - 1] = _adLower[i] - 1; // edge case i = 1
+          _adUpper[prev_idx] = _adLower[idx] - 1; // edge case i = 1
         else 
-          _adUpper[i - 1] = floor( prev_adUpper - abs( overlapp) / 2);
+          _adUpper[prev_idx] = floor( prev_adUpper - abs( overlapp) / 2);
       }
 
       prev_val_ad = val_ad;
       prev_adUpper = adUpper;
       prev_overlapp = overlapp;
+			prev_idx = idx;
 
       if (R == 0)
         {
@@ -219,7 +223,7 @@ void OnewireKeypad< T, MAX_KEYS >::SetResistors(const long *R_rows, const long *
         }
         else R--;
     }
-  }
+	}
 }
 
 template < typename T, unsigned MAX_KEYS >
@@ -243,10 +247,8 @@ char OnewireKeypad< T, MAX_KEYS >::Getkey() {
 			
 		for ( uint8_t i = 0, R = _Rows - 1, C = _Cols - 1; i < SIZE; i++ ) {
 			if (multiResistor) {
-				uint8_t j = (C*_Rows) + _Rows - 1 - R; // position in _ad 
-				uint8_t k = (R*_Cols) + C; // position in _Data
-				if ( (pinReading <= _adUpper[j]) &&  (pinReading >= _adLower[j])) 
-					return _Data[k];
+				if ( (pinReading <= _adUpper[i]) &&  (pinReading >= _adLower[i])) 
+					return _Data[i];
 			} 
 			else {
 				float V = (voltage * float( R3 )) / (float(R3) + (float(R1) * float(R)) + (float(R2) * float(C)));
@@ -381,9 +383,8 @@ void OnewireKeypad< T, MAX_KEYS >::ShowRange() {
       
 			if ( !IsSameType< T, LCDTYPE >::Value)
 				if (multiResistor) {
-					uint8_t i = (C*_Rows) + _Rows - 1 - R; // position in _ad 
-					uint8_t j = (R*_Cols) + C; // position in _Data
-					port_ << "key:" << _Data[j] << " low:" << _adLower[i] << " high:" << _adUpper[i] << " | "; // 204.6 is from 1023/5.0
+					uint8_t i = (R*_Cols) + C; // position in _Data
+					port_ << "key:" << _Data[i] << " low:" << _adLower[i] << " high:" << _adUpper[i] << " | "; // 204.6 is from 1023/5.0
 				}
 				else
 					port_ << "V:" << V << ", AR: " << (V * ANALOG_FACTOR) << " | "; // 204.6 is from 1023/5.0
