@@ -46,7 +46,10 @@ SOFTWARE.
 #define RELEASED 2
 #define HELD 3
 
-//This number is based on 1/3 the lowest AR value from the ShowRange function.
+#define EXTREMEPREC 100
+#define HIGHPREC 50
+#define MEDIUMPREC 20
+#define LOWPREC 5
 
 struct MissingType {};
 
@@ -75,7 +78,8 @@ class OnewireKeypad {
       : port_( port ), latchedKey( BitBool< MAX_KEYS >() ), _Data( KP ), _Rows( Rows ), _Cols( Cols ), _Pin( Pin ), holdTime( 500 ),debounceTime(200), startTime( 0 ), lastState( 0 ), lastRead( 0 ), voltage( 5.0 ), ANALOG_FACTOR(1023 / 5.0), Num( 0 ) { }
 
     char	Getkey();
-    char	S_Getkey();
+		char 	Getkey(int Precision);
+		char 	DetermineKey(int pinReading);
     void	SetHoldTime(unsigned long setH_Time) { holdTime = setH_Time; }
     void	SetDebounceTime(unsigned long setD_Time) { debounceTime = setD_Time; }
 		void	SetKeypadVoltage(float Volts);
@@ -94,7 +98,7 @@ class OnewireKeypad {
   protected:
     T &port_;
     float ANALOG_FACTOR;
-		int KP_TOLERANCE = 20;
+		int KP_TOLERANCE = 20; //This number is based on 1/3 the lowest AR value from the ShowRange function.
 
   private:
     BitBool< MAX_KEYS > latchedKey;
@@ -196,11 +200,13 @@ void OnewireKeypad< T, MAX_KEYS >::SetResistors(const long *R_rows, const long *
       float adUpper = val_ad + ((val_ad - prev_val_ad) / 2);
 
       // second pass: adjust for overlapping boundaries
-      float overlapp = adLower - prev_adUpper;
+      float overlapp = 0; 
+      if (i >= 2) // special case for i=1,2
+        overlapp = adLower - prev_adUpper; 
 
 			uint8_t idx = (R*_Cols) + C; // position in _Data
 
-      _adLower[idx] = ceil( adLower + abs( prev_overlapp) / 2);
+      _adLower[idx] = ceil( adLower - (overlapp / 2));
       _adUpper[idx] = ceil( adUpper);
 			KP_TOLERANCE = - (_adUpper[idx]+1);
       if (i > 0) 
@@ -208,7 +214,7 @@ void OnewireKeypad< T, MAX_KEYS >::SetResistors(const long *R_rows, const long *
         if (i == 1)
           _adUpper[prev_idx] = _adLower[idx] - 1; // edge case i = 1
         else 
-          _adUpper[prev_idx] = floor( prev_adUpper - abs( overlapp) / 2);
+          _adUpper[prev_idx] = floor( prev_adUpper + (overlapp / 2));
       }
 
       prev_val_ad = val_ad;
@@ -244,29 +250,60 @@ char OnewireKeypad< T, MAX_KEYS >::Getkey() {
 		
 	if ( ((currentMillis - lastDebounceTime) > debounceTime) ) {
 		if (state == false) { return NO_KEY; }
-			
-		for ( uint8_t i = 0, R = _Rows - 1, C = _Cols - 1; i < SIZE; i++ ) {
-			if (multiResistor) {
-				if ( (pinReading <= _adUpper[i]) &&  (pinReading >= _adLower[i])) 
-					return _Data[i];
-			} 
-			else {
-				float V = (voltage * float( R3 )) / (float(R3) + (float(R1) * float(R)) + (float(R2) * float(C)));
-				float Vfinal = V * ANALOG_FACTOR;
-				
-				if ( pinReading <= (int(Vfinal) + 1.9f )) {
-					return _Data[(SIZE - 1) - i];
-				}
-			}
-
-			if ( C == 0 ) {
-				R--;
-				C = _Cols - 1;
-			} else { C--;}
-		}
+#ifdef DEBUG
+		//port_ << "Get Key (): reading=" << pinReading << '\n';
+#endif
+		return DetermineKey( pinReading);
 	}
-
+	
   return NO_KEY;
+}
+
+template < typename T, unsigned MAX_KEYS >
+char OnewireKeypad< T, MAX_KEYS >::Getkey( int Precision) {
+	float Reading = 0;
+	if (readPin()) {
+		if (Precision > 1){
+			for (size_t passes = 0; passes < Precision; passes++) {
+				Reading += analogRead(_Pin);
+			}
+			Reading = floor( (Reading / Precision) + 0.5f); // mimic round()
+		}
+		else {
+			Reading = analogRead(_Pin);
+		}
+#ifdef DEBUG
+		//port_ << "Get Key (" << Precision << "): reading=" << Reading << '\n';
+#endif
+		return DetermineKey( (int) Reading);
+	}
+	return NO_KEY;
+}
+
+template < typename T, unsigned MAX_KEYS >
+char OnewireKeypad< T, MAX_KEYS >::DetermineKey( int pinReading) {
+	for ( uint8_t i = 0, R = _Rows - 1, C = _Cols - 1; i < SIZE; i++ ) {
+		if (multiResistor) {
+			if ( (pinReading <= _adUpper[i]) &&  (pinReading >= _adLower[i])) 
+#ifdef DEBUG
+				//port_ << "Determine Key:" << _Data[i] << " " << _adLower[i] << " >= " << pinReading << " <= " << _adUpper[i] << '\n'; // Serial display
+#endif				
+				return _Data[i];
+		} 
+		else {
+			float V = (voltage * float( R3 )) / (float(R3) + (float(R1) * float(R)) + (float(R2) * float(C)));
+			float Vfinal = V * ANALOG_FACTOR;
+			
+			if ( pinReading <= (int(Vfinal) + 1.9f )) {
+				return _Data[(SIZE - 1) - i];
+			}
+		}
+
+		if ( C == 0 ) {
+			R--;
+			C = _Cols - 1;
+		} else { C--;}
+	}
 }
 
 template < typename T, unsigned MAX_KEYS >
@@ -376,7 +413,7 @@ void OnewireKeypad< T, MAX_KEYS >::ListenforEventKey() {
 template < typename T, unsigned MAX_KEYS >
 void OnewireKeypad< T, MAX_KEYS >::ShowRange() {
 	if (R3 == 0) { R3 = R2; }
-	port_ << "\n";
+	port_ << '\n';
 	for ( uint8_t R = 0; R < _Rows; R++) {
 		for ( uint8_t C = 0; C < _Cols; C++) {
 			float V = (voltage * float( R3 )) / (float(R3) + (float(R1) * float(R)) + (float(R2) * float(C)));
