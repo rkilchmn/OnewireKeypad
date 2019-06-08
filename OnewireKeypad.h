@@ -208,7 +208,7 @@ void OnewireKeypad< T, MAX_KEYS >::SetResistors(const long *R_rows, const long *
 
       _adLower[idx] = ceil( adLower - (overlapp / 2));
       _adUpper[idx] = ceil( adUpper);
-			KP_TOLERANCE = - (_adUpper[idx]+1);
+			KP_TOLERANCE = - (_adUpper[idx]+(_adUpper[idx]-_adLower[idx]/2));
       if (i > 0) 
       {
         if (i == 1)
@@ -262,22 +262,28 @@ char OnewireKeypad< T, MAX_KEYS >::Getkey() {
 template < typename T, unsigned MAX_KEYS >
 char OnewireKeypad< T, MAX_KEYS >::Getkey( int Precision) {
 	float Reading = 0;
+	char returnValue = NO_KEY;
+
 	if (readPin()) {
 		if (Precision > 1){
 			for (size_t passes = 0; passes < Precision; passes++) {
 				Reading += analogRead(_Pin);
+				yield();
 			}
 			Reading = floor( (Reading / Precision) + 0.5f); // mimic round()
 		}
 		else {
 			Reading = analogRead(_Pin);
 		}
-#ifdef DEBUG
-		//port_ << "Get Key (" << Precision << "): reading=" << Reading << '\n';
-#endif
-		return DetermineKey( (int) Reading);
+		returnValue = DetermineKey( (int) Reading);
 	}
-	return NO_KEY;
+	
+#ifdef DEBUG
+		if (returnValue != NO_KEY)
+			port_ << "GK(" << Precision << "):'" << (int) returnValue << "'," << Reading << '\n';
+#endif
+	
+	return returnValue;
 }
 
 template < typename T, unsigned MAX_KEYS >
@@ -308,18 +314,36 @@ char OnewireKeypad< T, MAX_KEYS >::DetermineKey( int pinReading) {
 
 template < typename T, unsigned MAX_KEYS >
 uint8_t OnewireKeypad< T, MAX_KEYS >::Key_State() {
+	uint8_t returnValue;
+
 	if ((state = readPin()) != lastState) {
-		return ( (lastState = state) ? PRESSED : RELEASED); //MOD
+		returnValue = ( (lastState = state) ? PRESSED : RELEASED); //MOD
+#ifdef DEBUG
+		port_ << "KS()=" << returnValue << '\n';
+#endif
+		return returnValue;
 	} else if (state) {
 		time = millis();
 
 		while (readPin()) {
-			if ((millis() - time) > holdTime) { return HELD; }
+			if ((millis() - time) > holdTime) {
+				returnValue = HELD;
+#ifdef DEBUG
+				port_ << "KS()=" << returnValue << '\n';
+#endif
+				return returnValue;
+			}
+			yield();
 		}
 		lastState = 0;
-		return RELEASED;
+		returnValue = RELEASED;
+#ifdef DEBUG
+		port_ << "KS()=" << returnValue << '\n';
+#endif
+		return returnValue;
 	}
-	return WAITING;
+	returnValue = WAITING;
+	return returnValue;
 }
 
 template < typename T, unsigned MAX_KEYS >
