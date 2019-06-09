@@ -208,7 +208,7 @@ void OnewireKeypad< T, MAX_KEYS >::SetResistors(const long *R_rows, const long *
 
       _adLower[idx] = ceil( adLower - (overlapp / 2));
       _adUpper[idx] = ceil( adUpper);
-			KP_TOLERANCE = - (_adUpper[idx]+(_adUpper[idx]-_adLower[idx]/2));
+			KP_TOLERANCE = - (_adUpper[idx]+(_adUpper[idx]-_adLower[idx])/2);
       if (i > 0) 
       {
         if (i == 1)
@@ -319,7 +319,7 @@ uint8_t OnewireKeypad< T, MAX_KEYS >::Key_State() {
 	if ((state = readPin()) != lastState) {
 		returnValue = ( (lastState = state) ? PRESSED : RELEASED); //MOD
 #ifdef DEBUG
-		port_ << "KS()=" << returnValue << '\n';
+		port_ << "KS()1:" << returnValue << "," << state  << "," << lastState << '\n';
 #endif
 		return returnValue;
 	} else if (state) {
@@ -329,7 +329,7 @@ uint8_t OnewireKeypad< T, MAX_KEYS >::Key_State() {
 			if ((millis() - time) > holdTime) {
 				returnValue = HELD;
 #ifdef DEBUG
-				port_ << "KS()=" << returnValue << '\n';
+				port_ << "KS()2=" << returnValue << '\n';
 #endif
 				return returnValue;
 			}
@@ -338,7 +338,7 @@ uint8_t OnewireKeypad< T, MAX_KEYS >::Key_State() {
 		lastState = 0;
 		returnValue = RELEASED;
 #ifdef DEBUG
-		port_ << "KS()=" << returnValue << '\n';
+		port_ << "KS()3=" << returnValue << '\n';
 #endif
 		return returnValue;
 	}
@@ -348,15 +348,24 @@ uint8_t OnewireKeypad< T, MAX_KEYS >::Key_State() {
 
 template < typename T, unsigned MAX_KEYS >
 bool OnewireKeypad<T, MAX_KEYS >::readPin() { 
+	bool returnValue; 
 	 int read = analogRead(_Pin);
 	 if (KP_TOLERANCE >= 0) {
 		 // return 0 if >= tolerance
-		 return read >= KP_TOLERANCE; 
+		 returnValue = read >= KP_TOLERANCE; 
+		 
 	 }
 	 else {
 		// return 0 if <= tolerance
-		 return read <= - KP_TOLERANCE; 
+		returnValue = read <= - KP_TOLERANCE; 
 	 }
+
+#ifdef DEBUG
+	if (returnValue)
+		port_ << "RP():" << returnValue << ',' << read << ',' << KP_TOLERANCE << '\n';
+#endif
+
+	 return returnValue;
 }
 
 
