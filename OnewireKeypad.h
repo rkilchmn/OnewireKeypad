@@ -40,11 +40,8 @@ SOFTWARE.
 #include <Arduino.h>
 #include "BitBool.h"
 
-#define NO_KEY '\0'
-#define WAITING 0
-#define PRESSED 1
-#define RELEASED 2
-#define HELD 3
+const char NO_KEY = '\0';
+typedef enum{ IDLE, PRESSED, HOLD, RELEASED } KeyState;
 
 #define EXTREMEPREC 100
 #define HIGHPREC 50
@@ -82,22 +79,22 @@ public:
 	OnewireKeypad(T &port, char KP[], uint8_t Rows, uint8_t Cols, uint8_t Pin)
 		: port_(port), latchedKey(BitBool<MAX_KEYS>()), _Data(KP), _Rows(Rows), _Cols(Cols), _Pin(Pin), holdTime(500), debounceTime(200), startTime(0), lastState(0), lastRead(0), voltage(5.0), ANALOG_FACTOR(1023 / 5.0), Num(0) {}
 
-	char Getkey();
-	char Getkey(int Precision);
-	char DetermineKey(int pinReading);
-	void SetHoldTime(unsigned long setH_Time) { holdTime = setH_Time; }
-	void SetDebounceTime(unsigned long setD_Time) { debounceTime = setD_Time; }
-	void SetKeypadVoltage(float Volts);
-	void SetAnalogPinRange(float range);
-	void SetResistors(const long *R_rows, const long *R_cols, signed long R_pullUpDown, long R_adImpedance, long adMax);
-	uint8_t Key_State();
+	char getKey();
+	char getKey(int Precision);
+	char determineKey(int pinReading);
+	void setHoldTime(unsigned long setH_Time) { holdTime = setH_Time; }
+	void setDebounceTime(unsigned long setD_Time) { debounceTime = setD_Time; }
+	void setKeypadVoltage(float Volts);
+	void setAnalogPinRange(float range);
+	void setResistors(const long *R_rows, const long *R_cols, signed long R_pullUpDown, long R_adImpedance, long adMax);
+	uint8_t getKeyState();
 	bool readPin();
-	void LatchKey();
+	void latchKey();
 	bool checkLatchedKey(char _key);
 	void addEventKey(void (*userFunc)(void), char KEY);
 	void deleteEventKey(char KEY);
-	void ListenforEventKey();
-	void ShowRange();
+	void listenforEventKey();
+	void showRange();
 	uint8_t _Pin;
 
 protected:
@@ -154,7 +151,7 @@ struct IsSameType<T, T>
 };
 
 template <typename T, unsigned MAX_KEYS>
-void OnewireKeypad<T, MAX_KEYS>::SetAnalogPinRange(float range)
+void OnewireKeypad<T, MAX_KEYS>::setAnalogPinRange(float range)
 {
 	if (range <= 0 || range > 1023)
 	{
@@ -174,7 +171,7 @@ void OnewireKeypad<T, MAX_KEYS>::SetAnalogPinRange(float range)
 }
 
 template <typename T, unsigned MAX_KEYS>
-void OnewireKeypad<T, MAX_KEYS>::SetKeypadVoltage(float Volts)
+void OnewireKeypad<T, MAX_KEYS>::setKeypadVoltage(float Volts)
 {
 	if (Volts <= 0 || Volts > 5)
 	{
@@ -195,7 +192,7 @@ void OnewireKeypad<T, MAX_KEYS>::SetKeypadVoltage(float Volts)
 }
 
 template <typename T, unsigned MAX_KEYS>
-void OnewireKeypad<T, MAX_KEYS>::SetResistors(const long *R_rows, const long *R_cols, signed long R_pullUpDown, long R_adImpedance, long adMax)
+void OnewireKeypad<T, MAX_KEYS>::setResistors(const long *R_rows, const long *R_cols, signed long R_pullUpDown, long R_adImpedance, long adMax)
 {
 	multiResistor = true;
 
@@ -327,7 +324,7 @@ void OnewireKeypad<T, MAX_KEYS>::SetResistors(const long *R_rows, const long *R_
 }
 
 template <typename T, unsigned MAX_KEYS>
-char OnewireKeypad<T, MAX_KEYS>::Getkey()
+char OnewireKeypad<T, MAX_KEYS>::getKey()
 {
 	// Check R3 and set it if needed
 	if (R3 == 0)
@@ -356,14 +353,14 @@ char OnewireKeypad<T, MAX_KEYS>::Getkey()
 #ifdef DEBUG
 		// port_ << "Get Key (): reading=" << pinReading << '\n';
 #endif
-		return DetermineKey(pinReading);
+		return determineKey(pinReading);
 	}
 
 	return NO_KEY;
 }
 
 template <typename T, unsigned MAX_KEYS>
-char OnewireKeypad<T, MAX_KEYS>::Getkey(int Precision)
+char OnewireKeypad<T, MAX_KEYS>::getKey(int Precision)
 {
 	float pinReading = 0;
 	char returnValue = NO_KEY;
@@ -388,7 +385,7 @@ char OnewireKeypad<T, MAX_KEYS>::Getkey(int Precision)
 		port_ << "Get Key (): reading=" << pinReading << '\n';
 #endif
 
-		returnValue = DetermineKey((int)pinReading);
+		returnValue = determineKey((int)pinReading);
 	}
 
 #ifdef DEBUG
@@ -400,7 +397,7 @@ char OnewireKeypad<T, MAX_KEYS>::Getkey(int Precision)
 }
 
 template <typename T, unsigned MAX_KEYS>
-char OnewireKeypad<T, MAX_KEYS>::DetermineKey(int pinReading)
+char OnewireKeypad<T, MAX_KEYS>::determineKey(int pinReading)
 {
 	for (uint8_t i = 0, R = _Rows - 1, C = _Cols - 1; i < SIZE; i++)
 	{
@@ -436,7 +433,7 @@ char OnewireKeypad<T, MAX_KEYS>::DetermineKey(int pinReading)
 }
 
 template <typename T, unsigned MAX_KEYS>
-uint8_t OnewireKeypad<T, MAX_KEYS>::Key_State()
+uint8_t OnewireKeypad<T, MAX_KEYS>::getKeyState()
 {
 	uint8_t returnValue;
 
@@ -456,7 +453,7 @@ uint8_t OnewireKeypad<T, MAX_KEYS>::Key_State()
 		{
 			if ((millis() - time) > holdTime)
 			{
-				returnValue = HELD;
+				returnValue = HOLD;
 #ifdef DEBUG
 				port_ << "KS()2=" << returnValue << '\n';
 #endif
@@ -471,7 +468,7 @@ uint8_t OnewireKeypad<T, MAX_KEYS>::Key_State()
 #endif
 		return returnValue;
 	}
-	returnValue = WAITING;
+	returnValue = IDLE;
 	return returnValue;
 }
 
@@ -500,11 +497,11 @@ bool OnewireKeypad<T, MAX_KEYS>::readPin()
 }
 
 template <typename T, unsigned MAX_KEYS>
-void OnewireKeypad<T, MAX_KEYS>::LatchKey()
+void OnewireKeypad<T, MAX_KEYS>::latchKey()
 {
 	char output[20];
 	bool PRINT = false;
-	char read = Getkey();
+	char read = getKey();
 
 	if (read != lastRead)
 	{
@@ -586,13 +583,13 @@ void OnewireKeypad<T, MAX_KEYS>::deleteEventKey(char KEY)
 }
 
 template <typename T, unsigned MAX_KEYS>
-void OnewireKeypad<T, MAX_KEYS>::ListenforEventKey()
+void OnewireKeypad<T, MAX_KEYS>::listenforEventKey()
 {
 	for (uint8_t idx = 0; idx < Num; idx++)
 	{
-		if (Getkey() == Event[idx].keyHolder)
+		if (getKey() == Event[idx].keyHolder)
 		{
-			if (Key_State() == RELEASED)
+			if (getKeyState() == RELEASED)
 			{
 				Event[idx].intFunc();
 				break;
@@ -602,7 +599,7 @@ void OnewireKeypad<T, MAX_KEYS>::ListenforEventKey()
 }
 
 template <typename T, unsigned MAX_KEYS>
-void OnewireKeypad<T, MAX_KEYS>::ShowRange()
+void OnewireKeypad<T, MAX_KEYS>::showRange()
 {
 	if (R3 == 0)
 	{
