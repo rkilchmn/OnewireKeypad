@@ -79,8 +79,8 @@ public:
 	OnewireKeypad(T &port, char KP[], uint8_t Rows, uint8_t Cols, uint8_t Pin)
 		: port_(port), latchedKey(BitBool<MAX_KEYS>()), _Data(KP), _Rows(Rows), _Cols(Cols), _Pin(Pin), holdTime(500), debounceTime(200), startTime(0), lastState(0), lastRead(0), voltage(5.0), ANALOG_FACTOR(1023 / 5.0), Num(0) {}
 
-	char getKey();
-	char getKey(int Precision);
+	char getKey(); // improved methed using individual resitor values
+	char getKey(int Precision); // orignal method
 	char determineKey(int pinReading);
 	void setHoldTime(unsigned long setH_Time) { holdTime = setH_Time; }
 	void setDebounceTime(unsigned long setD_Time) { debounceTime = setD_Time; }
