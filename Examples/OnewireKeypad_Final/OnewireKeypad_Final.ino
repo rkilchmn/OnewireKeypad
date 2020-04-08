@@ -11,6 +11,8 @@ char KEYS[] = {
   '*', '0', '#', 'D'
 };
 
+const long R_ROW[] = {22, 15, 15};
+const long R_COL[] = {68, 68};
 //LiquidCrystal_I2C Lcd(0x20,20,4);
 //OnewireKeypad <LiquidCrystal_I2C, 12> KP( Lcd, KEYS, 4, 3, A0, 4700, 1000 );
 
@@ -26,7 +28,12 @@ void setup () {
   // You only need to include this method if your Arduino is not supplying 5v to
   // the keypad. ie. ~4.7v or even with 3.3v Arduino boards too.
   //KP.SetKeypadVoltage(5.0);
-  KP2.SetKeypadVoltage(5.0);
+
+   // keypad
+  keyPad.SetResistors( R_ROW, R_COL, 220,  450, 1023); 
+  keyPad.SetDebounceTime( 25);
+
+  keyPad.ShowRange();  
 }
 
 void loop() {
